@@ -13,6 +13,7 @@ from utils import *
 current_directory = os.curdir
 
 
+# Using custom hashing as python hashing is random on runtime
 def custom_hash(string):
     new_hash = 7
     for c in string:
@@ -20,21 +21,25 @@ def custom_hash(string):
     return new_hash
 
 
-def get_and_check_hash(client):
+# when we retrieve data we also what to check it against it's hash to ensure that data was not tampered with
+def retrieve_and_check_hash(client):
     message_hash = receive(client)
     message = receive(client)
     if message_hash != custom_hash(message):
+        # If its not the same prompt will be displayed to the server
         print(
             f"Suspicous activity: Hash not match!\n{message_hash}\n{custom_hash(message)}"
         )
     return message
 
 
+# we only send data with it's hash
 def send_with_hash(client, data):
     send(client, custom_hash(data))
     send(client, data)
 
 
+# creates a connection for sqlite to a database
 def create_connection(path):
     connection = None
     try:
@@ -45,6 +50,7 @@ def create_connection(path):
     return connection
 
 
+# executes a non retrival query
 def execute_query(connection, query):
     cursor = connection.cursor()
     try:
@@ -55,6 +61,7 @@ def execute_query(connection, query):
         print(f"The error '{e}' occurred")
 
 
+# executes a retrieval query and returns the matches
 def retrieval_query(connection, query):
     cursor = connection.cursor()
     result = None
@@ -68,8 +75,10 @@ def retrieval_query(connection, query):
         print(f"The error '{e}' occurred")
 
 
-# Registers a user by adding
+# Registers a user by adding its username and corresponding hashed password
 def register(connection, username, password):
+
+    # First check if there exists a the exact same username
     find_username = f"""
     SELECT
         username
@@ -79,29 +88,32 @@ def register(connection, username, password):
         users.username = '{username}'
     """
     if retrieval_query(connection, find_username):
+        # if so dont add another entry
         return False
+
     add_user = f"""
         INSERT INTO
             users (username, password)
         VALUES
             ('{username}', '{custom_hash(password)}');
         """
-    # probably should add error catching for dup names, but we will ignore for now
     execute_query(connection, add_user)
     return True
 
 
+# Prompt for user to register an account
 def register_prompt(client, connection):
     send_with_hash(client, "[Server]>Registration\n[Server]>Username: ")
-    username = get_and_check_hash(client).lower()
+    username = retrieve_and_check_hash(client).lower()
     send_with_hash(client, "[Server]>Password: ")
-    password = get_and_check_hash(client)
+    password = retrieve_and_check_hash(client)
     if register(connection, username, password):
         send_with_hash(client, "[Server]>Successfully Registered!\n")
     else:
         send_with_hash(client, "[Server]>Name already exists, please restart!\n")
 
 
+# checks if the hash of the password entered is the same as what is stored
 def login(client, connection, username, password):
     find_users_password = f"""
     SELECT
@@ -122,16 +134,17 @@ def login(client, connection, username, password):
     return False, username
 
 
+# Prompt for user to login
 def login_prompt(client, connection):
     send_with_hash(client, "[Server]>Login\n[Server]>Username: ")
-    username = get_and_check_hash(client).lower()
+    username = retrieve_and_check_hash(client).lower()
     send_with_hash(client, "[Server]>Password: ")
-    password = get_and_check_hash(client)
+    password = retrieve_and_check_hash(client)
     return login(client, connection, username, password)
 
 
+# function that allows handles pre login information
 def register_and_login(client, db_connection):
-    ## Figure how to incoporate this a little later need to login to the server first
     signed_in = False
     username = ""
 
@@ -142,14 +155,14 @@ def register_and_login(client, db_connection):
     send_with_hash(
         client, "[Server]>Please select whether to login(1 or l) or register(2 or r): "
     )
-    option = get_and_check_hash(client)
+    option = retrieve_and_check_hash(client)
     while option not in valid_input:
         send_with_hash(client, "[Server]>Option was invalid please try again!")
         send_with_hash(
             client,
             "[Server]>Please select whether to login(1 or l) or register(2 or r): ",
         )
-        option = get_and_check_hash(client)
+        option = retrieve_and_check_hash(client)
     if option in login_input:
         signed_in, username = login_prompt(client, db_connection)
     if option in register_input:
@@ -160,14 +173,14 @@ def register_and_login(client, db_connection):
             client,
             "[Server]>Please select whether to login(1 or l) or register(2 or r): ",
         )
-        option = get_and_check_hash(client)
+        option = retrieve_and_check_hash(client)
         while option not in valid_input:
             send_with_hash(client, "[Server]>Option was invalid please try again!")
             send_with_hash(
                 client,
                 "[Server]>Please select whether to login(1 or l) or register(2 or r): ",
             )
-            option = get_and_check_hash(client)
+            option = retrieve_and_check_hash(client)
         if option in login_input:
             signed_in, username = login_prompt(client, db_connection)
         if option in register_input:
@@ -176,6 +189,7 @@ def register_and_login(client, db_connection):
     return signed_in, username
 
 
+# synchronization wrapper to allow for concurrent users logging in
 def synchronized(function):
     lock = threading.Lock()
 
@@ -190,18 +204,20 @@ def synchronized(function):
 SERVER_HOST = "localhost"
 
 
+# Class example
 class ChatServer(object):
     """An example chat server using select"""
 
     def __init__(self, port, backlog=5):
-        self.timeout = None
+        self.timeout = None  # help with new clients issue
         self.clients = 0
         self.clientmap = {}
-        self.outputs = []  # list output sockets
+        self.outputs = []
 
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         self.context.load_cert_chain(certfile="cert1.pem", keyfile="cert1.pem")
         self.context.load_verify_locations("cert1.pem")
+        # includes stronger and more ciphers
         self.context.set_ciphers(
             "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA:DHE-RSA-AES256-SHA256"
         )
@@ -215,9 +231,10 @@ class ChatServer(object):
         # Catch keyboard interrupts
         signal.signal(signal.SIGINT, self.sighandler)
 
+        # path for database with user's hashed passwords
         self.database_path = os.path.join(current_directory, "serverData.sqlite")
-        self.db_connection = create_connection(self.database_path)
 
+        self.db_connection = create_connection(self.database_path)
         create_users_table = """
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -229,6 +246,7 @@ class ChatServer(object):
 
         print(f"Server listening to port: {port} ...")
 
+    # Annotation used for concurrent users logging in.
     @synchronized
     def add_client(self, client, address, username):
         # Compute client name and send back
@@ -242,10 +260,11 @@ class ChatServer(object):
         for output in self.outputs:
             send_with_hash(output, msg)
         self.outputs.append(client)
+        # reset timout to not refresh
         self.timeout = None
 
+    ## login/register code to allow parallelisation and not block main thread
     def handle_register_and_login(self, client, address):
-        ## login/register code
         signed_in = False
 
         new_db_connection = create_connection(self.database_path)
@@ -294,7 +313,10 @@ class ChatServer(object):
                         f"Chat server: got connection {client.fileno()} from {address}"
                     )
 
+                    # set time out so that we don't get stuck waiting when creating multiple clients
                     self.timeout = 1
+
+                    # use a thread to handle multiple users signing in and still be able to process information
                     threading.Thread(
                         target=self.handle_register_and_login, args=(client, address)
                     ).start()
@@ -302,7 +324,7 @@ class ChatServer(object):
                 else:
                     # handle all other sockets
                     try:
-                        data = get_and_check_hash(client)
+                        data = retrieve_and_check_hash(client)
                         if data:
                             # Send as new client's message...
                             msg = f"\n{self.get_client_name(sock)}: {data}"

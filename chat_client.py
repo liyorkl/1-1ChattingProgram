@@ -13,6 +13,7 @@ SERVER_HOST = "localhost"
 stop_thread = False
 
 
+# Using custom hashing as python hashing is random on runtime
 def custom_hash(string):
     new_hash = 7
     for c in string:
@@ -20,21 +21,29 @@ def custom_hash(string):
     return new_hash
 
 
-def get_and_send(client):
-    while not stop_thread:
-        data = sys.stdin.readline().strip()
-        if data:
-            # Send two meesages one hashed first
-            send(client.sock, custom_hash(data))
-            send(client.sock, data)
-
-
+# when we retrieve data we also what to check it against it's hash to ensure that data was not tampered with
 def receive_and_check_hash(client):
     message_hash = receive(client)
     message = receive(client)
     if message_hash != custom_hash(message):
-        print(f"Suspicous activity: Hash not match!\n{message_hash}\n{custom_hash(message)}")
+        # If its not the same prompt will be displayed to the server
+        print(
+            f"Suspicous activity: Hash not match!\n{message_hash}\n{custom_hash(message)}"
+        )
     return message
+
+
+# we only send data with it's hash
+def send_with_hash(client, data):
+    send(client, custom_hash(data))
+    send(client, data)
+
+
+def get_and_send(client):
+    while not stop_thread:
+        data = sys.stdin.readline().strip()
+        if data:
+            send_with_hash(client.sock, data)
 
 
 class ChatClient:

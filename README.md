@@ -37,3 +37,13 @@ To run the client please use in the command line
 `--port=****` the port can be number, just ensure that client is using the same port as server
 
 Once you have this running follow the instructions to register an account, and then login to start messaging others connected to the server.
+
+`username`s are case insensitive so `bob` is the same as `BoB`
+
+## Limitations
+
+There are no hard coded limits to message length.
+
+There should also be no limit to the number of concurrent connections.
+
+The same user can be signed in concurrently at the same time, could be useful to send messages to self, on same network but different devices.
