@@ -260,8 +260,6 @@ class ChatServer(object):
         for output in self.outputs:
             send_with_hash(output, msg)
         self.outputs.append(client)
-        # reset timout to not refresh
-        self.timeout = None
 
     ## login/register code to allow parallelisation and not block main thread
     def handle_register_and_login(self, client, address):
@@ -313,9 +311,6 @@ class ChatServer(object):
                         f"Chat server: got connection {client.fileno()} from {address}"
                     )
 
-                    # set time out so that we don't get stuck waiting when creating multiple clients
-                    self.timeout = 1
-
                     # use a thread to handle multiple users signing in and still be able to process information
                     threading.Thread(
                         target=self.handle_register_and_login, args=(client, address)
@@ -324,7 +319,7 @@ class ChatServer(object):
                 else:
                     # handle all other sockets
                     try:
-                        data = retrieve_and_check_hash(client)
+                        data = retrieve_and_check_hash(sock)
                         if data:
                             # Send as new client's message...
                             msg = f"\n{self.get_client_name(sock)}: {data}"

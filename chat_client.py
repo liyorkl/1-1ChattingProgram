@@ -38,7 +38,6 @@ def send_with_hash(client, data):
     send(client, custom_hash(data))
     send(client, data)
 
-
 def get_and_send(client):
     while not stop_thread:
         data = sys.stdin.readline().strip()
