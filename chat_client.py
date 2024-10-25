@@ -43,7 +43,8 @@ def get_and_send(client):
     while not stop_thread:
         data = sys.stdin.readline().strip()
         if data:
-            send_with_hash(client.sock, data)
+            send(client.sock, custom_hash(data))
+            send(client.sock, data)
 
 
 class ChatClient:
@@ -56,8 +57,6 @@ class ChatClient:
         self.signed_in = False
 
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        self.context.load_cert_chain(certfile="cert2.pem", keyfile="cert2.pem")
-        self.context.load_verify_locations("cert2.pem")
         self.context.set_ciphers(
             "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA:DHE-RSA-AES256-SHA256"
         )

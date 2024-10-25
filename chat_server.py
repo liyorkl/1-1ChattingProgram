@@ -298,7 +298,7 @@ class ChatServer(object):
         while running:
             try:
                 readable, writeable, exceptional = select.select(
-                    self.inputs, self.outputs, [], self.timeout
+                    self.inputs, self.outputs, [], 1
                 )
             except select.error as e:
                 break
