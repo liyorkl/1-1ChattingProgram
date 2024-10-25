@@ -13,11 +13,33 @@ from utils import *
 current_directory = os.curdir
 
 
+def custom_hash(string):
+    new_hash = 7
+    for c in string:
+        new_hash = new_hash * 31 + ord(c)
+    return new_hash
+
+
+def get_and_check_hash(client):
+    message_hash = receive(client)
+    message = receive(client)
+    if message_hash != custom_hash(message):
+        print(
+            f"Suspicous activity: Hash not match!\n{message_hash}\n{custom_hash(message)}"
+        )
+    return message
+
+
+def send_with_hash(client, data):
+    send(client, custom_hash(data))
+    send(client, data)
+
+
 def create_connection(path):
     connection = None
     try:
         connection = sqlite3.connect(path)
-        print("Connection to SQLite DB successful")
+        print("Connected to database")
     except sqlite3.Error as e:
         print(f"The error '{e}' occurred")
     return connection
@@ -39,30 +61,45 @@ def retrieval_query(connection, query):
     try:
         cursor.execute(query)
         result = cursor.fetchall()
+        print("Query executed successfully")
         print(f"Found: {result}")
         return result
     except sqlite3.Error as e:
         print(f"The error '{e}' occurred")
 
 
+# Registers a user by adding
 def register(connection, username, password):
+    find_username = f"""
+    SELECT
+        username
+    FROM
+        users
+    WHERE
+        users.username = '{username}'
+    """
+    if retrieval_query(connection, find_username):
+        return False
     add_user = f"""
         INSERT INTO
             users (username, password)
         VALUES
-            ('{username}', '{password}');
+            ('{username}', '{custom_hash(password)}');
         """
     # probably should add error catching for dup names, but we will ignore for now
     execute_query(connection, add_user)
+    return True
 
 
 def register_prompt(client, connection):
-    send(client, "[Server]>Registration\n[Server]>Username: ")
-    username = receive(client).lower()
-    send(client, "[Server]>Password: ")
-    password = receive(client)
-    register(connection, username, password)
-    send(client, "[Server]>Successfully Registered!\n")
+    send_with_hash(client, "[Server]>Registration\n[Server]>Username: ")
+    username = get_and_check_hash(client).lower()
+    send_with_hash(client, "[Server]>Password: ")
+    password = get_and_check_hash(client)
+    if register(connection, username, password):
+        send_with_hash(client, "[Server]>Successfully Registered!\n")
+    else:
+        send_with_hash(client, "[Server]>Name already exists, please restart!\n")
 
 
 def login(client, connection, username, password):
@@ -76,20 +113,20 @@ def login(client, connection, username, password):
     """
     passwords = retrieval_query(connection, find_users_password)
     if len(passwords) == 0:
-        send(client, "[Server]>User not Found, please restart!\n")
+        send_with_hash(client, "[Server]>User not Found, please restart!\n")
         return False, username
-    if password == passwords[0][0]:
-        send(client, "[Server]>Logged in Successfully")
+    if str(custom_hash(password)) == passwords[0][0]:
+        send_with_hash(client, "[Server]>Logged in Successfully")
         return True, username
-    send(client, "[Server]>Could not login, please restart!\n")
+    send_with_hash(client, "[Server]>Could not login, please restart!\n")
     return False, username
 
 
 def login_prompt(client, connection):
-    send(client, "[Server]>Login\n[Server]>Username: ")
-    username = receive(client).lower()
-    send(client, "[Server]>Password: ")
-    password = receive(client)
+    send_with_hash(client, "[Server]>Login\n[Server]>Username: ")
+    username = get_and_check_hash(client).lower()
+    send_with_hash(client, "[Server]>Password: ")
+    password = get_and_check_hash(client)
     return login(client, connection, username, password)
 
 
@@ -102,35 +139,35 @@ def register_and_login(client, db_connection):
     register_input = ["register", "2", "r"]
     valid_input = login_input + register_input
 
-    send(
+    send_with_hash(
         client, "[Server]>Please select whether to login(1 or l) or register(2 or r): "
     )
-    option = receive(client)
+    option = get_and_check_hash(client)
     while option not in valid_input:
-        send(client, "[Server]>Option was invalid please try again!")
-        send(
+        send_with_hash(client, "[Server]>Option was invalid please try again!")
+        send_with_hash(
             client,
             "[Server]>Please select whether to login(1 or l) or register(2 or r): ",
         )
-        option = receive(client)
+        option = get_and_check_hash(client)
     if option in login_input:
         signed_in, username = login_prompt(client, db_connection)
     if option in register_input:
         register_prompt(client, db_connection)
 
     while not signed_in:
-        send(
+        send_with_hash(
             client,
             "[Server]>Please select whether to login(1 or l) or register(2 or r): ",
         )
-        option = receive(client)
+        option = get_and_check_hash(client)
         while option not in valid_input:
-            send(client, "[Server]>Option was invalid please try again!")
-            send(
+            send_with_hash(client, "[Server]>Option was invalid please try again!")
+            send_with_hash(
                 client,
                 "[Server]>Please select whether to login(1 or l) or register(2 or r): ",
             )
-            option = receive(client)
+            option = get_and_check_hash(client)
         if option in login_input:
             signed_in, username = login_prompt(client, db_connection)
         if option in register_input:
@@ -163,9 +200,11 @@ class ChatServer(object):
         self.outputs = []  # list output sockets
 
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        self.context.load_cert_chain(certfile="cert.pem", keyfile="cert.pem")
-        self.context.load_verify_locations("cert.pem")
-        self.context.set_ciphers("AES128-SHA")
+        self.context.load_cert_chain(certfile="cert1.pem", keyfile="cert1.pem")
+        self.context.load_verify_locations("cert1.pem")
+        self.context.set_ciphers(
+            "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA:DHE-RSA-AES256-SHA256"
+        )
 
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -176,9 +215,7 @@ class ChatServer(object):
         # Catch keyboard interrupts
         signal.signal(signal.SIGINT, self.sighandler)
 
-        self.database_path = os.path.join(
-            current_directory, "database", "serverData.sqlite"
-        )
+        self.database_path = os.path.join(current_directory, "serverData.sqlite")
         self.db_connection = create_connection(self.database_path)
 
         create_users_table = """
@@ -196,14 +233,14 @@ class ChatServer(object):
     def add_client(self, client, address, username):
         # Compute client name and send back
         self.clients += 1
-        send(client, f"{username}:{str(address[0])}")
+        send_with_hash(client, f"{username}:{str(address[0])}")
         self.inputs.append(client)
 
         self.clientmap[client] = (address, username)
         # Send joining information to other clients
         msg = f"\n(Connected: New client ({self.clients}) from {self.get_client_name(client)})"
         for output in self.outputs:
-            send(output, msg)
+            send_with_hash(output, msg)
         self.outputs.append(client)
         self.timeout = None
 
@@ -265,7 +302,7 @@ class ChatServer(object):
                 else:
                     # handle all other sockets
                     try:
-                        data = receive(sock)
+                        data = get_and_check_hash(client)
                         if data:
                             # Send as new client's message...
                             msg = f"\n{self.get_client_name(sock)}: {data}"
@@ -273,7 +310,7 @@ class ChatServer(object):
                             # Send data to all except ourself
                             for output in self.outputs:
                                 if output != sock:
-                                    send(output, msg)
+                                    send_with_hash(output, msg)
                         else:
                             print(f"Chat server: {sock.fileno()} hung up")
                             self.clients -= 1
@@ -285,7 +322,7 @@ class ChatServer(object):
                             msg = f"\n(Now hung up: Client from {self.get_client_name(sock)})"
 
                             for output in self.outputs:
-                                send(output, msg)
+                                send_with_hash(output, msg)
                     except socket.error as e:
                         # Remove
                         self.inputs.remove(sock)
