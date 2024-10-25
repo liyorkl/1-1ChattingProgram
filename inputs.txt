@@ -1,0 +1,5 @@
+# Client
+python chat_client.py --port=9988
+
+# Server
+python chat_server.py --port=9988

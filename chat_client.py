@@ -4,10 +4,9 @@ import sys
 import signal
 import argparse
 import threading
-
+import ssl
 
 from utils import *
-
 
 SERVER_HOST = "localhost"
 
@@ -24,29 +23,34 @@ def get_and_send(client):
 class ChatClient:
     """A command line chat client using select"""
 
-    def __init__(self, name, port, host=SERVER_HOST):
-        self.name = name
+    def __init__(self, port, host=SERVER_HOST):
         self.connected = False
         self.host = host
         self.port = port
+        self.signed_in = False
+
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        self.context.set_ciphers("AES128-SHA")
 
         # Initial prompt
-        self.prompt = f"[{name}@{socket.gethostname()}]> "
+        self.prompt = f" > "
 
         # Connect to server at port
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock = self.context.wrap_socket(self.sock, server_hostname=host)
+
             self.sock.connect((host, self.port))
             print(f"Now connected to chat server@ port {self.port}")
             self.connected = True
 
-            # Send my name...
-            send(self.sock, "NAME: " + self.name)
-            data = receive(self.sock)
+            # # Send my name...
+            # send(self.sock, 'NAME: ' + self.name)
+            # data = receive(self.sock)
 
-            # Contains client address, set it
-            addr = data.split("CLIENT: ")[1]
-            self.prompt = "[" + "@".join((self.name, addr)) + "]> "
+            # # Contains client address, set it
+            # addr = data.split('CLIENT: ')[1]
+            # self.prompt = '[' + '@'.join((self.name, addr)) + ']> '
 
             threading.Thread(target=get_and_send, args=(self,)).start()
 
@@ -62,8 +66,9 @@ class ChatClient:
         """Chat client main loop"""
         while self.connected:
             try:
-                sys.stdout.write(self.prompt)
-                sys.stdout.flush()
+                if self.signed_in:
+                    sys.stdout.write(self.prompt)
+                    sys.stdout.flush()
 
                 # Wait for input from stdin and socket
                 # readable, writeable, exceptional = select.select([0, self.sock], [], [])
@@ -77,10 +82,23 @@ class ChatClient:
                     if sock == self.sock:
                         data = receive(self.sock)
                         if not data:
-                            print("Client shutting down.")
+                            print("Server is shutting down.")
                             self.connected = False
                             break
                         else:
+                            if not self.signed_in:
+                                if data == "[Server]>Logged in Successfully":
+                                    sys.stdout.write(data + "\n")
+                                    sys.stdout.flush()
+                                    self.signed_in = True
+                                    data = receive(self.sock)
+                                    # Contains client address, set it
+                                    name_addr = data.split(":")
+                                    self.prompt = self.prompt = "me: "
+                                    continue
+                                sys.stdout.write(data)
+                                sys.stdout.flush()
+                                continue
                             sys.stdout.write(data + "\n")
                             sys.stdout.flush()
 
@@ -98,5 +116,5 @@ if __name__ == "__main__":
 
     port = given_args.port
 
-    client = ChatClient(name=None, port=port)
+    client = ChatClient(port=port)
     client.run()
